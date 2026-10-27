@@ -276,7 +276,7 @@ case $menu in
 9) running ;;
 10) clearcache ;;
 11) reboot ;;
-12) bash /root/uninstall.sh ;;
+12) bash /root/autoscriptxray/uninstall.sh ;;
 13) systemctl status udp-custom ;;
 x) exit ;;
 *)
