@@ -13,7 +13,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 DEPS_VERSION="deps-v2"
-RELEASE_URL="https://github.com/znandev/AutoscriptXRAY/releases/download/${DEPS_VERSION}"
+RELEASE_URL="https://github.com/dalagistore/autoscriptxray/releases/download/${DEPS_VERSION}"
 
 # =========================================================
 # BASE DIRECTORY
