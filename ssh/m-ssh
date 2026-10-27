@@ -1,108 +1,275 @@
 #!/bin/bash
+# SSH WS account manager for AutoscriptXRAY
+# Features: add, trial, renew, delete, check login, list, remove expired,
+# service status and service restart.
 
-clear
+set -o pipefail
 
 GREEN='\033[0;32m'
 CYAN='\033[0;36m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
+ADD_SCRIPT='/etc/autoscriptvpn/ssh/addssh.sh'
 
-echo -e "${CYAN}"
-echo "╔══════════════════════════════╗"
-echo "║        MENU SSH WS          ║"
-echo "╚══════════════════════════════╝"
-echo -e "${NC}"
+pause() { read -r -p 'Tekan Enter untuk kembali ke menu...' _; }
+info() { echo -e "${GREEN}[INFO]${NC} $*"; }
+warn() { echo -e "${YELLOW}[PERINGATAN]${NC} $*"; }
+err() { echo -e "${RED}[ERROR]${NC} $*"; }
 
-echo -e "${YELLOW} 1.${NC} Add SSH Account"
-echo -e "${YELLOW} 2.${NC} Trial SSH Account"
-echo -e "${YELLOW} 3.${NC} Renew SSH Account"
-echo -e "${YELLOW} 4.${NC} Delete SSH Account"
-echo -e "${YELLOW} 5.${NC} Check User Login"
-echo -e "${YELLOW} 6.${NC} List Member SSH"
-echo -e "${YELLOW} 7.${NC} Delete Expired SSH"
-echo -e "${YELLOW} 8.${NC} Check Service SSH"
-echo -e "${YELLOW} 9.${NC} Restart Service SSH"
-echo -e "${YELLOW} x.${NC} Exit"
+need_root() {
+    if [[ $EUID -ne 0 ]]; then
+        err 'Menu ini harus dijalankan sebagai root.'
+        return 1
+    fi
+}
 
-echo ""
-read -p "Select Menu : " x
+valid_username() {
+    [[ "$1" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]]
+}
 
-case $x in
+account_exists() { getent passwd "$1" >/dev/null 2>&1; }
 
-1)
-clear
-bash /etc/autoscriptvpn/ssh/addssh.sh
-;;
+account_expiry() {
+    local user="$1" exp
+    exp=$(chage -l "$user" 2>/dev/null | awk -F': ' '/Account expires/{print $2; exit}')
+    [[ -n "$exp" ]] && printf '%s' "$exp" || printf 'Tidak diketahui'
+}
 
-2)
-clear
-echo "Trial SSH - Coming Soon"
-;;
+account_is_expired() {
+    local user="$1" exp
+    exp=$(chage -l "$user" 2>/dev/null | awk -F': ' '/Account expires/{print $2; exit}')
+    [[ -z "$exp" || "$exp" == 'never' || "$exp" == 'Never' ]] && return 1
+    local exp_epoch today_epoch
+    exp_epoch=$(date -d "$exp" +%s 2>/dev/null) || return 1
+    today_epoch=$(date +%s)
+    (( exp_epoch < today_epoch ))
+}
 
-3)
-clear
-echo "Renew SSH - Coming Soon"
-;;
+list_ssh_users() {
+    # Display regular users with a real account shell; system accounts are excluded.
+    getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1 ":" $3 ":" $6 ":" $7}' |
+    while IFS=: read -r user uid home shell; do
+        [[ "$user" == 'nobody' ]] && continue
+        printf '%-20s %-12s %-24s %s\n' "$user" "$(account_expiry "$user")" "$shell" "$(id -u "$user" 2>/dev/null)"
+    done
+}
 
-4)
-clear
-echo "Delete SSH - Coming Soon"
-;;
+make_password() {
+    if command -v openssl >/dev/null 2>&1; then
+        openssl rand -base64 12 | tr -d '/+=' | cut -c1-12
+    else
+        tr -dc 'A-Za-z0-9' </dev/urandom | head -c 12
+    fi
+}
 
-5)
-clear
-echo "Check Login SSH - Coming Soon"
-;;
+add_ssh_account() {
+    clear
+    echo -e "${CYAN}=== TAMBAH AKUN SSH ===${NC}"
+    if [[ -x "$ADD_SCRIPT" || -f "$ADD_SCRIPT" ]]; then
+        echo 'Menggunakan script tambah akun bawaan panel...'
+        bash "$ADD_SCRIPT"
+    else
+        err "Script bawaan tidak ditemukan: $ADD_SCRIPT"
+        echo 'Pembuatan akun manual tidak dijalankan agar format akun panel tidak rusak.'
+    fi
+}
 
-6)
-clear
-echo "List Member SSH - Coming Soon"
-;;
+trial_ssh_account() {
+    clear
+    echo -e "${CYAN}=== BUAT AKUN TRIAL SSH (1 HARI) ===${NC}"
+    read -r -p 'Username trial (kosong = otomatis): ' user
+    if [[ -z "$user" ]]; then user="trial$(date +%H%M%S)"; fi
+    if ! valid_username "$user"; then err 'Format username tidak valid.'; return; fi
+    if account_exists "$user"; then err 'Username sudah digunakan.'; return; fi
 
-7)
-clear
-echo "Delete Expired SSH - Coming Soon"
-;;
+    local pass expiry
+    pass=$(make_password)
+    expiry=$(date -d '+1 day' +%Y-%m-%d) || { err 'Gagal menghitung tanggal kedaluwarsa.'; return; }
 
-8)
-clear
-systemctl status ssh --no-pager
-echo ""
-systemctl status dropbear --no-pager
-echo ""
-systemctl status ws-dropbear --no-pager
-echo ""
-systemctl status ws-stunnel --no-pager
-echo ""
-systemctl status udp-custom --no-pager
-echo ""
-systemctl status udpgw --no-pager
-;;
+    # Use the same local Linux account database used by OpenSSH/Dropbear.
+    if ! useradd -M -s /bin/false -e "$expiry" "$user"; then
+        err 'Gagal membuat akun trial.'; return
+    fi
+    if ! printf '%s:%s\n' "$user" "$pass" | chpasswd; then
+        userdel "$user" 2>/dev/null || true
+        err 'Gagal mengatur password; akun dibatalkan.'; return
+    fi
+    chage -E "$expiry" "$user" || warn 'Tanggal kedaluwarsa gagal diterapkan.'
+    echo
+    info 'Akun trial dibuat.'
+    echo "Username   : $user"
+    echo "Password   : $pass"
+    echo "Kedaluwarsa: $expiry"
+    echo 'Catatan: akun menggunakan database user Linux; pastikan metode autentikasi SSH panel Anda memakai akun sistem.'
+}
 
-9)
-clear
+renew_ssh_account() {
+    clear
+    echo -e "${CYAN}=== PERPANJANG AKUN SSH ===${NC}"
+    read -r -p 'Username: ' user
+    if ! account_exists "$user"; then err 'Akun tidak ditemukan.'; return; fi
+    read -r -p 'Tambahkan masa aktif berapa hari? ' days
+    [[ "$days" =~ ^[0-9]+$ ]] && (( days >= 1 && days <= 3650 )) || { err 'Masukkan angka 1 sampai 3650.'; return; }
 
-systemctl restart ssh
-systemctl restart dropbear
-systemctl restart ws-dropbear
-systemctl restart ws-stunnel
-systemctl restart udp-custom
-systemctl restart udpgw
+    local current base new_exp
+    current=$(chage -l "$user" 2>/dev/null | awk -F': ' '/Account expires/{print $2; exit}')
+    if [[ -n "$current" && "$current" != 'never' && "$current" != 'Never' ]] && date -d "$current" >/dev/null 2>&1 && (( $(date -d "$current" +%s) > $(date +%s) )); then
+        base="$current"
+    else
+        base='today'
+    fi
+    new_exp=$(date -d "$base + $days days" +%Y-%m-%d) || { err 'Gagal menghitung tanggal baru.'; return; }
+    if chage -E "$new_exp" "$user"; then
+        info "Akun $user diperpanjang sampai $new_exp."
+    else
+        err 'Gagal memperpanjang akun.'
+    fi
+}
 
-echo ""
-echo -e "${GREEN}[ OK ] All SSH Service Restarted${NC}"
-echo ""
+delete_ssh_account() {
+    clear
+    echo -e "${CYAN}=== HAPUS AKUN SSH ===${NC}"
+    read -r -p 'Username yang akan dihapus: ' user
+    if ! account_exists "$user"; then err 'Akun tidak ditemukan.'; return; fi
+    if [[ "$user" == root ]]; then err 'Akun root tidak boleh dihapus dari menu ini.'; return; fi
+    echo "Username: $user"
+    read -r -p 'Ketik HAPUS untuk konfirmasi: ' confirm
+    [[ "$confirm" == 'HAPUS' ]] || { warn 'Dibatalkan.'; return; }
+    if userdel "$user"; then
+        info "Akun $user dihapus."
+    else
+        err 'Gagal menghapus akun.'
+    fi
+}
 
-;;
+check_ssh_login() {
+    clear
+    echo -e "${CYAN}=== CEK LOGIN SSH ===${NC}"
+    read -r -p 'Username (kosong untuk menampilkan sesi SSH): ' user
+    echo
+    if [[ -n "$user" ]]; then
+        if ! account_exists "$user"; then err 'Akun tidak ditemukan.'; return; fi
+        echo "Username   : $user"
+        echo "Kedaluwarsa: $(account_expiry "$user")"
+        echo 'Sesi terkait (jika terdeteksi oleh proses SSH/Dropbear):'
+        ps -eo user:20,pid,etime,args | awk -v u="$user" '($1==u) && /sshd|dropbear/ {print}'
+        echo
+        if who | awk -v u="$user" '$1==u {found=1} END{exit !found}'; then
+            info 'User terlihat pada daftar sesi login (who).'
+        else
+            warn 'Tidak ditemukan pada who; sesi tunnel belum tentu tercatat di sana.'
+        fi
+    else
+        echo 'Sesi login dari who:'
+        who || true
+        echo
+        echo 'Proses sshd/dropbear:'
+        ps -eo user:20,pid,etime,args | grep -E '[s]shd:|[d]ropbear' || true
+    fi
+}
 
-x)
-exit
-;;
+list_ssh_members() {
+    clear
+    echo -e "${CYAN}=== DAFTAR MEMBER SSH ===${NC}"
+    printf '%-20s %-24s %-24s %s\n' 'USERNAME' 'KEDALUWARSA' 'SHELL' 'UID'
+    printf '%-20s %-24s %-24s %s\n' '--------' '-----------' '-----' '---'
+    getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}' | while read -r user; do
+        [[ "$user" == 'nobody' ]] && continue
+        shell=$(getent passwd "$user" | awk -F: '{print $7}')
+        printf '%-20s %-24s %-24s %s\n' "$user" "$(account_expiry "$user")" "$shell" "$(id -u "$user" 2>/dev/null)"
+    done
+}
 
-*)
-echo "❌ Pilihan salah!"
-sleep 1
-exec m-ssh
-;;
-esac
+delete_expired_ssh() {
+    clear
+    echo -e "${CYAN}=== HAPUS AKUN KEDALUWARSA ===${NC}"
+    local expired=() user
+    while IFS= read -r user; do
+        [[ -n "$user" && "$user" != root && "$user" != nobody ]] || continue
+        if account_is_expired "$user"; then expired+=("$user"); fi
+    done < <(getent passwd | awk -F: '$3 >= 1000 && $3 < 65534 {print $1}')
+
+    if (( ${#expired[@]} == 0 )); then
+        info 'Tidak ada akun kedaluwarsa yang ditemukan.'
+        return
+    fi
+    printf '%-20s %s\n' 'USERNAME' 'KEDALUWARSA'
+    for user in "${expired[@]}"; do printf '%-20s %s\n' "$user" "$(account_expiry "$user")"; done
+    echo
+    warn 'Akun yang dihapus tidak dapat dipulihkan dari menu ini.'
+    read -r -p 'Ketik HAPUS untuk menghapus semua akun di atas: ' confirm
+    [[ "$confirm" == 'HAPUS' ]] || { warn 'Dibatalkan.'; return; }
+    for user in "${expired[@]}"; do
+        if userdel "$user"; then info "Dihapus: $user"; else err "Gagal menghapus: $user"; fi
+    done
+}
+
+service_status() {
+    clear
+    echo -e "${CYAN}=== STATUS SERVICE SSH ===${NC}"
+    local svc found
+    for svc in ssh dropbear dropbear-ws stunnel-ws ws-dropbear ws-stunnel udpgw udp-custom; do
+        if systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null | grep -q "${svc}.service"; then
+            echo
+            systemctl --no-pager -l status "$svc" 2>&1 | sed -n '1,12p'
+        fi
+    done
+    echo
+    echo 'Port yang sedang listen:'
+    ss -tulnp 2>/dev/null | grep -E ':(22|109|143|2082|2096|7300|36712)([[:space:]]|$)' || true
+}
+
+restart_services() {
+    clear
+    echo -e "${CYAN}=== RESTART SERVICE SSH ===${NC}"
+    local svc found=0 failed=0
+    # Prefer the service names installed by install/ssh.sh; support legacy aliases too.
+    for svc in ssh dropbear dropbear-ws stunnel-ws udpgw udp-custom; do
+        if systemctl list-unit-files "${svc}.service" --no-legend 2>/dev/null | grep -q "${svc}.service"; then
+            found=1
+            if systemctl restart "$svc"; then info "Restart berhasil: $svc"; else err "Restart gagal: $svc"; failed=1; fi
+        fi
+    done
+    if (( found == 0 )); then warn 'Tidak menemukan service SSH yang dikenali.'; fi
+    if (( failed != 0 )); then warn 'Ada service yang gagal direstart; periksa menu status.'; else info 'Proses restart selesai.'; fi
+}
+
+show_menu() {
+    clear
+    echo -e "${CYAN}"
+    echo '╔══════════════════════════════╗'
+    echo '║        MENU SSH WS          ║'
+    echo '╚══════════════════════════════╝'
+    echo -e "${NC}"
+    echo -e "${YELLOW} 1.${NC} Add SSH Account"
+    echo -e "${YELLOW} 2.${NC} Trial SSH Account (1 hari)"
+    echo -e "${YELLOW} 3.${NC} Renew SSH Account"
+    echo -e "${YELLOW} 4.${NC} Delete SSH Account"
+    echo -e "${YELLOW} 5.${NC} Check User Login"
+    echo -e "${YELLOW} 6.${NC} List Member SSH"
+    echo -e "${YELLOW} 7.${NC} Delete Expired SSH"
+    echo -e "${YELLOW} 8.${NC} Check Service SSH"
+    echo -e "${YELLOW} 9.${NC} Restart Service SSH"
+    echo -e "${YELLOW} x.${NC} Exit"
+    echo
+}
+
+need_root || exit 1
+while true; do
+    show_menu
+    read -r -p 'Select Menu : ' choice
+    case "$choice" in
+        1) add_ssh_account; pause ;;
+        2) trial_ssh_account; pause ;;
+        3) renew_ssh_account; pause ;;
+        4) delete_ssh_account; pause ;;
+        5) check_ssh_login; pause ;;
+        6) list_ssh_members; pause ;;
+        7) delete_expired_ssh; pause ;;
+        8) service_status; pause ;;
+        9) restart_services; pause ;;
+        x|X) exit 0 ;;
+        *) err 'Pilihan tidak valid.'; sleep 1 ;;
+    esac
+done
