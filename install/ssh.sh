@@ -7,7 +7,7 @@ RED='\033[0;31m'
 NC='\033[0m'
 
 DEPS_VERSION="deps-v2"
-RELEASE_URL="https://github.com/znandev/AutoscriptXRAY/releases/download/${DEPS_VERSION}"
+RELEASE_URL="https://github.com/dalagistore/autoscriptxray/releases/download/${DEPS_VERSION}"
 
 clear
 
@@ -16,7 +16,7 @@ sleep 1
 
 # ================= VALIDATION =================
 
-if [[ ! -f ~/AutoscriptXRAY/config/issue.net ]]; then
+if [[ ! -f /root/autoscriptxray/config/issue.net ]]; then
     echo -e "${RED}[ERROR] issue.net not found!${NC}"
     exit 1
 fi
@@ -90,7 +90,7 @@ dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key
 
 # ================= BANNER =================
 
-cp ~/AutoscriptXRAY/config/issue.net /etc/issue.net
+cp /root/autoscriptxray/config/issue.net /etc/issue.net
 chmod 644 /etc/issue.net
 
 # ================= DROPBEAR CONFIG =================
