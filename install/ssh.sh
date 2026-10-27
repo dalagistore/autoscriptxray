@@ -1,31 +1,126 @@
+```bash
 #!/bin/bash
 
-# Setup SSH WebSocket + UDPGW - by znandev
+# =========================================================
+# SSH + WEBSOCKET + UDPGW INSTALLER
+# autoscriptxray - by dlgst
+# =========================================================
+
+set -o pipefail
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m'
 
 DEPS_VERSION="deps-v2"
 RELEASE_URL="https://github.com/dalagistore/autoscriptxray/releases/download/${DEPS_VERSION}"
 
-clear
+# =========================================================
+# BASE DIRECTORY
+# =========================================================
 
-echo -e "${GREEN}▶️ Installing SSH + WebSocket...${NC}"
-sleep 1
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+BASE_DIR="$(dirname "$SCRIPT_DIR")"
 
-# ================= VALIDATION =================
-
-if [[ ! -f config/issue.net ]]; then
-    echo -e "${RED}[ERROR] issue.net not found!${NC}"
+# Mendukung eksekusi dari direktori mana pun.
+cd "$BASE_DIR" || {
+    echo -e "${RED}[ERROR] Gagal masuk direktori project: $BASE_DIR${NC}"
     exit 1
+}
+
+# =========================================================
+# HELPER
+# =========================================================
+
+fail() {
+    echo -e "${RED}[ERROR] $*${NC}"
+    exit 1
+}
+
+info() {
+    echo -e "${GREEN}[INFO] $*${NC}"
+}
+
+warn() {
+    echo -e "${YELLOW}[WARNING] $*${NC}"
+}
+
+require_file() {
+    [[ -f "$1" ]] || fail "File tidak ditemukan: $1"
+}
+
+require_dir() {
+    [[ -d "$1" ]] || fail "Direktori tidak ditemukan: $1"
+}
+
+check_service() {
+    local svc="$1"
+
+    if ! systemctl is-active --quiet "$svc"; then
+        echo -e "${RED}[ERROR] Service $svc gagal berjalan.${NC}"
+        systemctl --no-pager -l status "$svc" || true
+        return 1
+    fi
+
+    echo -e "${GREEN}[ACTIVE] $svc${NC}"
+    return 0
+}
+
+# =========================================================
+# ROOT CHECK
+# =========================================================
+
+if [[ "$EUID" -ne 0 ]]; then
+    fail "Jalankan script sebagai root."
 fi
 
-# ================= INSTALL DEPENDENCY =================
+clear
 
-apt update -y
+echo -e "${GREEN}============================================${NC}"
+echo -e "${GREEN}   INSTALL SSH + WEBSOCKET + UDPGW${NC}"
+echo -e "${GREEN}============================================${NC}"
+echo
+echo "Project directory: $BASE_DIR"
+sleep 1
 
-apt install -y \
+# =========================================================
+# REQUIRED FILES
+# =========================================================
+
+require_file "$BASE_DIR/config/udp-custom.json"
+require_dir "$BASE_DIR/internal/go"
+require_dir "$BASE_DIR/internal/go/dropbear-ws"
+require_dir "$BASE_DIR/internal/go/stunnel-ws"
+require_file "$BASE_DIR/internal/go/dropbear-ws.service"
+require_file "$BASE_DIR/internal/go/stunnel-ws.service"
+require_file "$BASE_DIR/sshws/udpgw.service"
+require_file "$BASE_DIR/sshws/udp-custom.service"
+
+# issue.net tidak wajib.
+if [[ -f "$BASE_DIR/config/issue.net" ]]; then
+    cp "$BASE_DIR/config/issue.net" /etc/issue.net ||
+        fail "Gagal menyalin issue.net"
+
+    chmod 644 /etc/issue.net
+    info "Banner SSH berhasil dipasang."
+else
+    warn "issue.net tidak tersedia. Instalasi dilanjutkan tanpa banner."
+fi
+
+# =========================================================
+# INSTALL DEPENDENCIES
+# =========================================================
+
+echo
+info "Memperbarui daftar paket..."
+
+apt-get update || fail "apt-get update gagal."
+
+echo
+info "Memasang dependensi..."
+
+DEBIAN_FRONTEND=noninteractive apt-get install -y \
     openssh-server \
     stunnel4 \
     curl \
@@ -35,19 +130,23 @@ apt install -y \
     git \
     golang-go \
     libtomcrypt1 \
-    libtommath1
+    libtommath1 \
+    ca-certificates \
+    jq \
+    || fail "Gagal memasang dependensi."
 
 mkdir -p /usr/local/bin
 
-# ================= INSTALL DROPBEAR =================
+# =========================================================
+# INSTALL DROPBEAR
+# =========================================================
 
-echo ""
-echo -e "${GREEN}[INFO] Installing Dropbear...${NC}"
-echo ""
+echo
+info "Menginstal Dropbear..."
 
 systemctl stop dropbear 2>/dev/null || true
 
-apt purge -y \
+DEBIAN_FRONTEND=noninteractive apt-get purge -y \
     dropbear \
     dropbear-bin >/dev/null 2>&1 || true
 
@@ -55,54 +154,74 @@ rm -f /usr/sbin/dropbear
 rm -f /usr/bin/dbclient
 rm -f /usr/bin/dropbearkey
 
-cd /tmp || exit
+cd /tmp || fail "Tidak bisa masuk ke /tmp."
+
+rm -f dropbear-bin.deb dropbear.deb
 
 wget -qO dropbear-bin.deb \
-"${RELEASE_URL}/dropbear-bin_2019.78-2build1_amd64.deb" || {
-    echo -e "${RED}[ERROR] Failed to download dropbear-bin${NC}"
-    exit 1
-}
+    "${RELEASE_URL}/dropbear-bin_2019.78-2build1_amd64.deb" ||
+    fail "Gagal mengunduh dropbear-bin."
 
 wget -qO dropbear.deb \
-"${RELEASE_URL}/dropbear_2019.78-2build1_all.deb" || {
-    echo -e "${RED}[ERROR] Failed to download dropbear${NC}"
-    exit 1
-}
+    "${RELEASE_URL}/dropbear_2019.78-2build1_all.deb" ||
+    fail "Gagal mengunduh paket Dropbear."
 
-dpkg -i dropbear-bin.deb dropbear.deb
+dpkg -i dropbear-bin.deb dropbear.deb ||
+    fail "Instalasi paket Dropbear gagal."
 
-DROPBEAR_VER=$(dropbear -V 2>&1)
+command -v dropbear >/dev/null 2>&1 ||
+    fail "Binary Dropbear tidak ditemukan."
 
-echo "$DROPBEAR_VER" | grep -q "2019.78" || {
-    echo -e "${RED}[ERROR] Wrong Dropbear installed!${NC}"
-    exit 1
-}
+DROPBEAR_VER="$(dropbear -V 2>&1 || true)"
 
-# ================= HOSTKEY =================
+echo "$DROPBEAR_VER"
+
+if ! grep -q "2019.78" <<< "$DROPBEAR_VER"; then
+    fail "Versi Dropbear yang terpasang tidak sesuai."
+fi
+
+# =========================================================
+# DROPBEAR HOST KEYS
+# =========================================================
 
 mkdir -p /etc/dropbear
 
-[ ! -f /etc/dropbear/dropbear_rsa_host_key ] && \
-dropbearkey -t rsa -f /etc/dropbear/dropbear_rsa_host_key
+if [[ ! -f /etc/dropbear/dropbear_rsa_host_key ]]; then
+    dropbearkey -t rsa \
+        -f /etc/dropbear/dropbear_rsa_host_key ||
+        fail "Gagal membuat RSA host key."
+fi
 
-[ ! -f /etc/dropbear/dropbear_ecdsa_host_key ] && \
-dropbearkey -t ecdsa -f /etc/dropbear/dropbear_ecdsa_host_key
+if [[ ! -f /etc/dropbear/dropbear_ecdsa_host_key ]]; then
+    dropbearkey -t ecdsa \
+        -f /etc/dropbear/dropbear_ecdsa_host_key ||
+        warn "Gagal membuat ECDSA host key; periksa dukungan algoritma Dropbear."
+fi
 
-# ================= BANNER =================
+# =========================================================
+# DROPBEAR BANNER CONFIG
+# =========================================================
 
-cp ~/autoscriptxray/config/issue.net /etc/issue.net
-chmod 644 /etc/issue.net
+DROPBEAR_BANNER_ARGS=""
 
-# ================= DROPBEAR CONFIG =================
+if [[ -f /etc/issue.net ]]; then
+    DROPBEAR_BANNER_ARGS="-b /etc/issue.net"
+fi
+
+# =========================================================
+# DROPBEAR CONFIG
+# =========================================================
 
 cat > /etc/default/dropbear <<EOF
 NO_START=0
 DROPBEAR_PORT=109
-DROPBEAR_EXTRA_ARGS="-p 143 -W 65536 -b /etc/issue.net"
+DROPBEAR_EXTRA_ARGS="-p 143 -W 65536 ${DROPBEAR_BANNER_ARGS}"
 DROPBEAR_RECEIVE_WINDOW=65536
 EOF
 
-# ================= DROPBEAR SERVICE =================
+# =========================================================
+# DROPBEAR SYSTEMD SERVICE
+# =========================================================
 
 cat > /etc/systemd/system/dropbear.service <<EOF
 [Unit]
@@ -110,144 +229,191 @@ Description=Dropbear SSH Server
 After=network.target
 
 [Service]
-ExecStart=/usr/sbin/dropbear -E -F -p 109 -p 143 -W 65536 -b /etc/issue.net
+Type=simple
+ExecStart=/usr/sbin/dropbear -E -F -p 109 -p 143 -W 65536 ${DROPBEAR_BANNER_ARGS}
 Restart=always
+RestartSec=3
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# ================= BUILD GO WS =================
+chmod 644 /etc/systemd/system/dropbear.service
 
-echo ""
-echo -e "${GREEN}[INFO] Building Go WebSocket Services...${NC}"
-echo ""
+# =========================================================
+# BUILD GO WEBSOCKET SERVICES
+# =========================================================
 
-if ! command -v go >/dev/null 2>&1; then
-    apt install -y golang-go
-fi
+echo
+info "Membangun SSH WebSocket dan SSL WebSocket..."
 
-cd ~/autoscriptxray/internal/go || exit 1
+command -v go >/dev/null 2>&1 ||
+    fail "Go compiler tidak ditemukan."
+
+cd "$BASE_DIR/internal/go" ||
+    fail "Gagal masuk ke direktori internal/go."
 
 go build -ldflags="-s -w" \
     -o /usr/local/bin/dropbearws \
-    ./dropbear-ws || {
-    echo -e "${RED}[ERROR] Failed to build sshws${NC}"
-    exit 1
-}
+    ./dropbear-ws ||
+    fail "Build dropbear-ws gagal."
 
 go build -ldflags="-s -w" \
     -o /usr/local/bin/stunnelws \
-    ./stunnel-ws || {
-    echo -e "${RED}[ERROR] Failed to build stunnelws${NC}"
-    exit 1
-}
+    ./stunnel-ws ||
+    fail "Build stunnel-ws gagal."
 
-chmod +x /usr/local/bin/dropbearws
-chmod +x /usr/local/bin/stunnelws
+chmod 755 /usr/local/bin/dropbearws
+chmod 755 /usr/local/bin/stunnelws
 
-cp ~/autoscriptxray/internal/go/dropbear-ws.service \
-    /etc/systemd/system/dropbear-ws.service
+# =========================================================
+# INSTALL WEBSOCKET SERVICES
+# =========================================================
 
-cp ~/autoscriptxray/internal/go/stunnel-ws.service \
-    /etc/systemd/system/stunnel-ws.service
+install -m 644 \
+    "$BASE_DIR/internal/go/dropbear-ws.service" \
+    /etc/systemd/system/dropbear-ws.service ||
+    fail "Gagal memasang dropbear-ws.service."
 
+install -m 644 \
+    "$BASE_DIR/internal/go/stunnel-ws.service" \
+    /etc/systemd/system/stunnel-ws.service ||
+    fail "Gagal memasang stunnel-ws.service."
 
-# ================= INSTALL BADVPN UDPGW =================
+# =========================================================
+# INSTALL BADVPN UDPGW
+# =========================================================
 
-echo ""
-echo -e "${GREEN}[INFO] Installing BadVPN UDPGW...${NC}"
-echo ""
+echo
+info "Menginstal BadVPN UDPGW..."
 
 wget -qO /usr/local/bin/badvpn-udpgw \
-"${RELEASE_URL}/badvpn-udpgw" || {
-    echo -e "${RED}[ERROR] Failed to download BadVPN UDPGW${NC}"
-    exit 1
-}
+    "${RELEASE_URL}/badvpn-udpgw" ||
+    fail "Gagal mengunduh BadVPN UDPGW."
 
-chmod +x /usr/local/bin/badvpn-udpgw
+chmod 755 /usr/local/bin/badvpn-udpgw
 
-# ================= UDPGW SERVICE =================
+# =========================================================
+# UDPGW SYSTEMD SERVICE
+# =========================================================
 
-cp ~/autoscriptxray/sshws/udpgw.service \
-/etc/systemd/system/
+install -m 644 \
+    "$BASE_DIR/sshws/udpgw.service" \
+    /etc/systemd/system/udpgw.service ||
+    fail "Gagal memasang udpgw.service."
 
-# ================= INSTALL UDP CUSTOM =================
+# =========================================================
+# INSTALL UDP CUSTOM
+# =========================================================
 
-echo ""
-echo -e "${GREEN}[INFO] Installing UDP Custom...${NC}"
-echo ""
+echo
+info "Menginstal UDP Custom..."
 
 wget -qO /usr/local/bin/udp-custom \
-"${RELEASE_URL}/udp-custom-linux-amd64" || {
-    echo -e "${RED}[ERROR] Failed to download UDP Custom${NC}"
-    exit 1
-}
+    "${RELEASE_URL}/udp-custom-linux-amd64" ||
+    fail "Gagal mengunduh UDP Custom."
 
-chmod +x /usr/local/bin/udp-custom
+chmod 755 /usr/local/bin/udp-custom
 
 mkdir -p /etc/udp-custom
 
-cp config/udp-custom.json \
-/etc/udp-custom/config.json
+install -m 644 \
+    "$BASE_DIR/config/udp-custom.json" \
+    /etc/udp-custom/config.json ||
+    fail "Gagal memasang konfigurasi UDP Custom."
 
-# ================= UDP CUSTOM SERVICE =================
+# =========================================================
+# UDP CUSTOM SYSTEMD SERVICE
+# =========================================================
 
-cp sshws/udp-custom.service \
-/etc/systemd/system/
+install -m 644 \
+    "$BASE_DIR/sshws/udp-custom.service" \
+    /etc/systemd/system/udp-custom.service ||
+    fail "Gagal memasang udp-custom.service."
 
-# ================= PERMISSION =================
+# =========================================================
+# RELOAD SYSTEMD
+# =========================================================
 
-chmod 644 /etc/systemd/system/dropbear.service
-chmod 644 /etc/systemd/system/dropbear-ws.service
-chmod 644 /etc/systemd/system/stunnel-ws.service
-chmod 644 /etc/systemd/system/udpgw.service
-chmod 644 /etc/systemd/system/udp-custom.service
+echo
+info "Memuat ulang konfigurasi systemd..."
 
-# ================= RELOAD =================
+systemctl daemon-reload ||
+    fail "systemctl daemon-reload gagal."
 
-systemctl daemon-reload
-systemctl daemon-reexec
+# =========================================================
+# ENABLE AND RESTART SERVICES
+# =========================================================
 
-# ================= ENABLE SERVICES =================
+echo
+info "Mengaktifkan layanan SSH..."
 
-systemctl enable ssh
-systemctl restart ssh
+systemctl enable ssh ||
+    fail "Gagal mengaktifkan layanan OpenSSH."
 
-systemctl enable dropbear
-systemctl restart dropbear
+systemctl restart ssh ||
+    fail "OpenSSH gagal dijalankan."
 
-systemctl enable dropbear-ws
-systemctl restart dropbear-ws
+systemctl enable dropbear ||
+    fail "Gagal mengaktifkan Dropbear."
 
-systemctl enable stunnel-ws
-systemctl restart stunnel-ws
+systemctl restart dropbear ||
+    fail "Dropbear gagal dijalankan."
 
-systemctl enable udpgw
-systemctl restart udpgw
+systemctl enable dropbear-ws ||
+    fail "Gagal mengaktifkan dropbear-ws."
 
-systemctl enable udp-custom
-systemctl restart udp-custom
+systemctl restart dropbear-ws ||
+    fail "dropbear-ws gagal dijalankan."
 
-# ================= RECHECK SERVICES ==============
+systemctl enable stunnel-ws ||
+    fail "Gagal mengaktifkan stunnel-ws."
 
+systemctl restart stunnel-ws ||
+    fail "stunnel-ws gagal dijalankan."
+
+systemctl enable udpgw ||
+    fail "Gagal mengaktifkan udpgw."
+
+systemctl restart udpgw ||
+    fail "udpgw gagal dijalankan."
+
+systemctl enable udp-custom ||
+    fail "Gagal mengaktifkan udp-custom."
+
+systemctl restart udp-custom ||
+    fail "udp-custom gagal dijalankan."
+
+# =========================================================
+# VERIFY SERVICES
+# =========================================================
+
+echo
+info "Memeriksa status layanan..."
 sleep 2
+
+SERVICE_FAILED=0
 
 for svc in \
     ssh \
     dropbear \
-    ws-dropbear \
-    ws-stunnel \
+    dropbear-ws \
+    stunnel-ws \
     udpgw \
     udp-custom
 do
-    systemctl is-active --quiet "$svc" || {
-        echo -e "${RED}[ERROR] Service $svc failed!${NC}"
-        exit 1
-    }
+    check_service "$svc" || SERVICE_FAILED=1
 done
 
-# ================= NOLOGIN WS ====================
+if [[ "$SERVICE_FAILED" -ne 0 ]]; then
+    echo
+    warn "Ada layanan yang gagal berjalan. Periksa log di atas."
+    exit 1
+fi
+
+# =========================================================
+# NOLOGIN WS
+# =========================================================
 
 cat > /etc/profile.d/no-login.sh <<'EOF'
 #!/bin/bash
@@ -267,13 +433,17 @@ sleep 2
 pkill -9 -u "$USER"
 EOF
 
-chmod +x /etc/profile.d/no-login.sh
+chmod 755 /etc/profile.d/no-login.sh
 
-# ================= HOLD DROPBEAR =================
+# =========================================================
+# HOLD DROPBEAR PACKAGES
+# =========================================================
 
 apt-mark hold dropbear dropbear-bin >/dev/null 2>&1 || true
 
-# ================= INSTALL LOG =================
+# =========================================================
+# INSTALL LOG
+# =========================================================
 
 cat >> /root/log-install.txt <<EOF
 
@@ -282,32 +452,44 @@ SSH PANEL
 ━━━━━━━━━━━━━━━━━━━━━━
 
 OpenSSH             : 22
-Dropbear            : 109,143
-SSH Websocket       : 2082
-SSH SSL Websocket   : 2096
-BadVPN UDPGW        : 7300
+Dropbear            : 109, 143
+SSH WebSocket       : 2082 (periksa konfigurasi service)
+SSH SSL WebSocket   : 2096 (periksa konfigurasi service)
+BadVPN UDPGW        : 7300 (periksa konfigurasi service)
+UDP Custom          : 36712 (periksa konfigurasi)
 Port UdpSSH         : 1-65535
+
+Project Directory   : ${BASE_DIR}
 
 ━━━━━━━━━━━━━━━━━━━━━━
 
 EOF
 
-# ================= DONE =================
+# =========================================================
+# DONE
+# =========================================================
 
 clear
 
-echo ""
-echo -e "${GREEN}[ OK ] SSH + WS + UDPGW Installed${NC}"
-echo ""
+echo
+echo -e "${GREEN}============================================${NC}"
+echo -e "${GREEN} [ OK ] SSH + WS + UDPGW BERHASIL DIPASANG${NC}"
+echo -e "${GREEN}============================================${NC}"
+echo
 
-ss -tulnp | grep -E '22|109|143|2082|2096|7300|36712'
+echo -e "${GREEN}[INFO] Port yang sedang LISTEN:${NC}"
+ss -tulnp | grep -E ':(22|109|143|2082|2096|7300|36712)([[:space:]]|$)' || true
 
-echo ""
-echo -e "${GREEN}[INFO] Service Status:${NC}"
+echo
+echo -e "${GREEN}[INFO] Status layanan:${NC}"
 
-systemctl --no-pager --type=service | \
-grep -E 'dropbear|ssh|ws|udpgw|udp|dropbear-ws|stunnel-ws'
+systemctl --no-pager --type=service |
+    grep -E 'dropbear|ssh|ws|udpgw|udp' || true
 
-echo ""
-dropbear -V
-echo ""
+echo
+dropbear -V 2>&1 || true
+
+echo
+echo -e "${GREEN}[ OK ] Instalasi selesai.${NC}"
+echo
+```
