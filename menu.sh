@@ -132,76 +132,78 @@ printf "${GREEN}✔ System ready!${NC}\n"
 sleep 1
 clear
 
-# ================= HEADER =================
-
-printf "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}\n"
-printf "${CYAN}║${WHITE}                 ⚡ DLGST XRAY PANEL ⚡                  ${CYAN}║${NC}\n"
-printf "${CYAN}║${WHITE}                       Version %-8s                      ${CYAN}║${NC}\n" "$PANEL_VERSION"
-printf "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}\n"
-
 # ================= SYSTEM INFO =================
 
-box_top "$YELLOW" "SYSTEM INFORMATION"
-box_row "$YELLOW" "IP VPS       : $IP"
-box_row "$YELLOW" "DOMAIN       : $DOMAIN"
-box_row "$YELLOW" "ISP          : $ISP"
-box_row "$YELLOW" "OPERATING OS : $OS"
-box_row "$YELLOW" "UPTIME       : $UPTIME"
-box_row "$YELLOW" "CPU USAGE    : $CPU"
-box_row "$YELLOW" "RAM USAGE    : $RAM"
-box_row "$YELLOW" "DISK USAGE   : $DISK"
-box_row "$YELLOW" "SERVER TIME  : $TIME"
-box_bottom "$YELLOW"
+echo -e "${YELLOW}┌──────────────── SYSTEM INFO ────────────────┐${NC}"
+
+printf " ${WHITE}IP VPS      ${NC}: %-25s\n" "$IP"
+printf " ${WHITE}DOMAIN      ${NC}: %-25s\n" "$DOMAIN"
+printf " ${WHITE}ISP         ${NC}: %-25s\n" "$ISP"
+printf " ${WHITE}OS          ${NC}: %-25s\n" "$OS"
+printf " ${WHITE}UPTIME      ${NC}: %-25s\n" "$UPTIME"
+printf " ${WHITE}CPU USAGE   ${NC}: %-25s\n" "$CPU"
+printf " ${WHITE}RAM USAGE   ${NC}: %-25s\n" "$RAM"
+printf " ${WHITE}DISK USAGE  ${NC}: %-25s\n" "$DISK"
+printf " ${WHITE}SERVER TIME ${NC}: %-25s\n" "$TIME"
+
+echo -e "${YELLOW}└─────────────────────────────────────────────┘${NC}"
 
 # ================= BANDWIDTH =================
 
-box_top "$CYAN" "NETWORK BANDWIDTH"
-box_row "$CYAN" "TODAY      : $TODAY          YESTERDAY : $YESTERDAY"
-box_row "$CYAN" "THIS MONTH : $MONTH          TOTAL     : $TOTAL_BW"
-box_bottom "$CYAN"
+echo -e "${CYAN}┌──────────────── BANDWIDTH ──────────────────┐${NC}"
 
-# ================= USER STATS =================
+printf " ${WHITE}TODAY${NC}   : %-10s" "$TODAY"
+printf " ${WHITE}YESTERDAY${NC}  : %-10s\n" "$YESTERDAY"
 
-box_top "$CYAN" "USER STATISTICS"
-box_row "$CYAN" "VMESS : $VMESS       VLESS : $VLESS       TROJAN : $TROJAN"
-box_row "$CYAN" "SSWS  : $SSWS        SSH   : $SSH_USER    ZIVPN  : $ZIVPN_USER"
-box_row "$CYAN" "TOTAL USERS : $TOTAL                  ONLINE IP : $ONLINE"
-box_bottom "$CYAN"
+printf " ${WHITE}MONTH${NC}   : %-10s" "$MONTH"
+printf " ${WHITE}TOTAL${NC}      : %-10s\n" "$TOTAL_BW"
 
-# ================= SERVICE STATUS =================
+echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
 
-box_top "$BLUE" "SERVICE STATUS"
-box_row "$BLUE" "XRAY       : $( [[ "$XRAY" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "NGINX      : $( [[ "$NGINX" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "DROPBEAR   : $( [[ "$DROPBEAR" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "WIREGUARD  : $( [[ "$WG" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "UDP CUSTOM : $( [[ "$UDPCUSTOM" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "UDP ZIVPN  : $( [[ "$ZIVPN" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "SSH WS     : $( [[ "$DROPBEARWS" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_row "$BLUE" "SSL WS     : $( [[ "$STUNNELWS" == active ]] && echo '● ONLINE' || echo '● OFFLINE' )"
-box_bottom "$BLUE"
+# ================= USER ==================
 
-# ================= MAIN MENU =================
+echo -e "${CYAN}┌──────────────── USER STATS ─────────────────┐${NC}"
 
-box_top "$RED" "MAIN MENU"
-box_row "$RED" "[1]  SSH ACCOUNT                 [8]  TOOLS"
-box_row "$RED" "[2]  VMESS                       [9]  STATUS"
-box_row "$RED" "[3]  VLESS                       [10] CLEAR RAM"
-box_row "$RED" "[4]  TROJAN                      [11] REBOOT VPS"
-box_row "$RED" "[5]  SHADOWSOCKS WS              [12] UNINSTALL"
-box_row "$RED" "[6]  WIREGUARD                   [13] UDP CUSTOM"
-box_row "$RED" "[7]  UDP ZIVPN                   [X]  EXIT"
-box_bottom "$RED"
+echo -e " ${WHITE}VMESS${NC} : $VMESS     ${WHITE}VLESS${NC} : $VLESS     ${WHITE}TROJAN${NC} : $TROJAN"
 
-# ================= LICENSE =================
+echo -e " ${WHITE}SSWS${NC}  : $SSWS     ${WHITE}SSH${NC}   : $SSH_USER     ${WHITE}ZIVPN${NC} : $ZIVPN_USER"
 
-box_top "$GREEN" "LICENSE INFORMATION"
-box_row "$GREEN" "LICENSE      : DLGST-ULTIMATE-2026"
-box_row "$GREEN" "LICENSE TYPE : Lifetime Premium"
-box_bottom "$GREEN"
+echo -e " ${WHITE}TOTAL${NC} : $TOTAL    ${WHITE}ONLINE${NC} : $ONLINE"
 
-printf "\n${YELLOW}Select menu [1-13/X] : ${NC}"
-read -r menu
+echo -e "${CYAN}└─────────────────────────────────────────────┘${NC}"
+
+# ================= SERVICE =================
+
+echo -e "${BLUE}┌──────────────── SERVICE ────────────────────┐${NC}"
+
+echo -e " ${WHITE}XRAY${NC}      : $XRAY  ${WHITE}NGINX${NC}     : $NGINX     "
+echo -e " ${WHITE}DROPBEAR${NC}  : $DROPBEAR  ${WHITE}WIREGUARD${NC} : $WG        "
+echo -e " ${WHITE}UDP CUSTOM${NC}: $UDPCUSTOM  ${WHITE}UDP ZIVPN${NC} : $ZIVPN     "
+echo -e " ${WHITE}SSH WS${NC}    : $DROPBEARWS ${WHITE}WSS${NC}       : $STUNNELWS "
+
+echo -e "${BLUE}└─────────────────────────────────────────────┘${NC}"
+
+# ================= MENU =================
+
+echo -e "${RED}┌──────────────── MAIN MENU ──────────────────┐${NC}"
+
+echo -e " [1] ${WHITE}SSH${NC}          [8] ${WHITE}TOOLS${NC}"
+echo -e " [2] ${WHITE}VMESS${NC}        [9] ${WHITE}STATUS${NC}"
+echo -e " [3] ${WHITE}VLESS${NC}        [10] ${WHITE}CLEAR RAM${NC}"
+echo -e " [4] ${WHITE}TROJAN${NC}       [11] ${WHITE}REBOOT VPS${NC}"
+echo -e " [5] ${WHITE}SSWS${NC}         [12] ${WHITE}UNINSTALL${NC}"
+echo -e " [6] ${WHITE}WIREGUARD${NC}    [13] ${WHITE}UDP CUSTOM${NC}"
+echo -e " [7] ${WHITE}UDP ZIVPN${NC}    [x] ${WHITE}EXIT${NC}"
+
+echo -e "${RED}└─────────────────────────────────────────────┘${NC}"
+
+echo -e "${RED}┌──────────────── LICENSE ────────────────────┐${NC}"
+echo -e " ${WHITE}License${NC} : ZNDEV-ULTIMATE-2026"
+echo -e " ${WHITE}Type${NC}    : Lifetime Premium"
+echo -e "${RED}└─────────────────────────────────────────────┘${NC}"
+
+read -rp "Select Menu : " menu
+
 
 case $menu in
     1) m-ssh ;;
