@@ -226,7 +226,7 @@ echo -e "${CYAN}┌──────────────── USER STATS �
 
 echo -e " ${WHITE}VMESS${NC} : $VMESS     ${WHITE}VLESS${NC} : $VLESS     ${WHITE}TROJAN${NC} : $TROJAN"
 
-echo -e " ${WHITE}SSWS${NC}  : $SSWS     ${WHITE}SSH${NC}   : $SSH_USER     ${WHITE}ZIVPN${NC}   : $ZIVPN_USER"
+echo -e " ${WHITE}SSWS${NC}  : $SSWS     ${WHITE}SSH${NC}   : $SSH_USER     ${WHITE}ZIVPN${NC}  : $ZIVPN_USER"
 
 echo -e " ${WHITE}TOTAL${NC} : $TOTAL    ${WHITE}ONLINE${NC} : $ONLINE"
 
@@ -239,7 +239,7 @@ echo -e "${BLUE}┌──────────────── SERVICE ─�
 echo -e " ${WHITE}XRAY${NC}      : $XRAY  ${WHITE}NGINX${NC}     : $NGINX     "
 echo -e " ${WHITE}DROPBEAR${NC}  : $DROPBEAR  ${WHITE}WIREGUARD${NC} : $WG        "
 echo -e " ${WHITE}UDP CUSTOM${NC}: $UDPCUSTOM  ${WHITE}UDP ZIVPN${NC} : $ZIVPN     "
-echo -e " ${WHITE}SSH WS${NC}    : $DROPBEARWS   ${WHITE}WSS${NC}       : $STUNNELWS "
+echo -e " ${WHITE}SSH WS${NC}    : $DROPBEARWS  ${WHITE}WSS${NC}       : $STUNNELWS "
 
 echo -e "${BLUE}└─────────────────────────────────────────────┘${NC}"
 
