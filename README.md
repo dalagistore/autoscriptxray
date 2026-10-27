@@ -14,10 +14,6 @@
 
 ---
 
-## Screenshot
-
-![dashboard1](./img/menu.gif)
-
 Open menu:
 
 ```bash
