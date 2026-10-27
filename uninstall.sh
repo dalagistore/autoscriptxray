@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Uninstall Script - AutoscriptXRAY by znandev
+# Uninstall Script
 
 # ================= COLOR =================
 
@@ -10,7 +10,7 @@ YELLOW='\033[1;33m'
 CYAN='\033[1;36m'
 NC='\033[0m'
 
-BASE_DIR="/root/AutoscriptXRAY"
+BASE_DIR="/root/autoscriptxray"
 
 # ================= CHECK ROOT =================
 
@@ -22,7 +22,7 @@ fi
 # ================= FUNCTION =================
 
 confirm() {
-read -rp "❗ Yakin ingin menghapus semua layanan AutoscriptXRAY? [y/N]: " confirm
+read -rp "❗ Yakin ingin menghapus semua layanan? [y/N]: " confirm
 
 [[ "$confirm" =~ ^[Yy]$ ]] || {
     echo -e "${YELLOW}Batal uninstall.${NC}"
