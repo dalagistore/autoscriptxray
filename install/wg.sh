@@ -37,6 +37,11 @@ if [[ -z "$interface" ]]; then
     echo "[ERROR] Failed to detect network interface!"
     exit 1
 fi
+# Jangan timpa server WireGuard yang sudah memiliki konfigurasi
+if [[ -s /etc/wireguard/wg0.conf ]]; then
+ echo 'Konfigurasi wg0.conf sudah ada; instalasi tidak menimpa file.'
+ exit 0
+fi
 # Buat konfigurasi wg0.conf
 cat > wg0.conf <<EOF
 [Interface]
@@ -45,7 +50,7 @@ ListenPort = 51820
 PrivateKey = $privkey
 PostUp = iptables -A FORWARD -i wg0 -j ACCEPT; iptables -A FORWARD -o wg0 -j ACCEPT; iptables -t nat -A POSTROUTING -o $interface -j MASQUERADE
 PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT; iptables -t nat -D POSTROUTING -o $interface -j MASQUERADE
-SaveConfig = true
+SaveConfig = false
 EOF
 
 # Aktifkan IP forwarding
