@@ -1,42 +1,91 @@
 #!/bin/bash
 
-clear
-
-BLUE='\033[0;34m'
-GREEN='\033[0;32m'
-NC='\033[0m'
-
-LOG="/var/log/xray/access.log"
 CONFIG="/etc/xray/config.json"
+DB="/etc/xray/vless.db"
+LOG="/var/log/xray/access.log"
 
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "\E[44;1;39m            CEK LOGIN VLESS USER             \E[0m"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
+clear
+echo "=============================================="
+echo "       DLGST XRAY PANEL - CEK LOGIN VLESS"
+echo "=============================================="
+echo "Waktu : $(date '+%d-%m-%Y %H:%M:%S')"
+echo "Aktivitas yang diperiksa: 10 menit terakhir"
+echo
 
-printf "%-15s %-18s\n" "USERNAME" "IP CLIENT"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-
-users=$(jq -r '.inbounds[] | select(.tag=="vless-tls") | .settings.clients[].email' $CONFIG)
-
-ips=$(grep "accepted" $LOG \
-| awk -F'from ' '{print $2}' \
-| cut -d':' -f1 \
-| grep -Eo '([0-9]{1,3}\.){3}[0-9]{1,3}' \
-| grep -v "127.0.0.1" \
-| sort -u)
-
-for user in $users
-do
-for ip in $ips
-do
-printf "${GREEN}%-15s${NC} %-18s\n" "$user" "$ip"
-done
+for file in "$CONFIG" "$DB" "$LOG"; do
+    if [[ ! -f "$file" ]]; then
+        echo "ERROR: File tidak ditemukan: $file"
+        read -r -p "Tekan Enter untuk kembali..."
+        exit 1
+    fi
 done
 
-echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+if ! command -v jq >/dev/null 2>&1; then
+    echo "ERROR: jq belum terpasang."
+    read -r -p "Tekan Enter untuk kembali..."
+    exit 1
+fi
 
-read -n 1 -s -r -p "Tekan apa saja untuk kembali ke menu..."
+printf '%-20s %-15s %-22s\n' "USERNAME" "STATUS" "EXPIRY"
+echo "------------------------------------------------------------"
 
-m-vless
+now=$(date +%s)
+found=0
+
+while read -r username expiry uuid; do
+    [[ -z "$username" || -z "$uuid" ]] && continue
+
+    if ! jq -e --arg uuid "$uuid" '
+        any(
+            .inbounds[]
+            | select(
+                .tag == "vless-ws-tls" or
+                .tag == "vless-ws-nontls" or
+                .tag == "vless-grpc"
+            )
+            | .settings.clients[]?;
+            .id == $uuid
+        )
+    ' "$CONFIG" >/dev/null 2>&1; then
+        continue
+    fi
+
+    found=1
+    status="TIDAK AKTIF"
+
+    if awk -v user="$username" -v now="$now" '
+        /accepted/ && /email:/ {
+            ts = substr($0, 1, 19)
+            gsub("/", " ", ts)
+            event_time = mktime(ts)
+            if (event_time > 0 && now - event_time >= 0 &&
+                now - event_time <= 600 && $0 ~ ("email: " user "$")) {
+                found=1
+            }
+        }
+        END { exit !found }
+    ' "$LOG"; then
+        status="ADA AKTIVITAS"
+    fi
+
+    today=$(date +%F)
+    if [[ "$expiry" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] &&
+       [[ "$expiry" < "$today" ]]; then
+        status="EXPIRED"
+    fi
+
+    printf '%-20s %-15s %-22s\n' "$username" "$status" "$expiry"
+done < "$DB"
+
+if [[ "$found" -eq 0 ]]; then
+    echo "Belum ada akun VLESS yang cocok dengan database dan config."
+fi
+
+echo
+echo "Keterangan:"
+echo "ADA AKTIVITAS = ada koneksi tercatat dalam 10 menit terakhir."
+echo "TIDAK AKTIF   = tidak ditemukan koneksi pada periode tersebut."
+echo "EXPIRED       = tanggal masa berlaku sudah lewat."
+echo
+echo "Catatan: ini bukan pemeriksaan sesi online secara real-time."
+read -r -p "Tekan Enter untuk kembali..."
