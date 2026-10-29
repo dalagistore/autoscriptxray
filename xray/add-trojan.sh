@@ -16,6 +16,8 @@ grpc="443"
 read -rp "Username : " user
 read -rp "Expired (days): " masaaktif
 
+[[ "$user" =~ ^[A-Za-z0-9_-]+$ ]] || { echo 'ERROR: Username tidak valid'; exit 1; }
+[[ "$masaaktif" =~ ^[0-9]+$ ]] && ((10#$masaaktif >= 1 && 10#$masaaktif <= 3650)) || { echo 'ERROR: Masa aktif harus 1-3650 hari'; exit 1; }
 uuid=$(cat /proc/sys/kernel/random/uuid)
 exp=$(date -d "$masaaktif days" +"%Y-%m-%d")
 
@@ -29,17 +31,25 @@ fi
 # cek duplicate user
 CLIENT_EXISTS=$(jq -r '.inbounds[].settings.clients[]?.email' /etc/xray/config.json | grep -w "$user" | wc -l)
 
-if [[ ${CLIENT_EXISTS} == '1' ]]; then
+if [[ ${CLIENT_EXISTS} -gt 0 ]]; then
     echo ""
     echo "ERROR: User already exists!"
     exit 1
 fi
 
+# Cek duplikasi database
+if [[ -f /etc/xray/trojan.db ]] && awk -v u="$user" '$1==u {found=1} END{exit !found}' /etc/xray/trojan.db; then
+ echo 'ERROR: Username sudah ada di database'; exit 1
+fi
+# Pastikan semua inbound target tersedia
+expected=2
+actual=$(jq '[.inbounds[] | select(.tag == "trojan-ws-tls" or .tag == "trojan-ws-nontls" or .tag == "trojan-grpc")] | length' /etc/xray/config.json)
+[[ "$actual" -eq "$expected" ]] || { echo "ERROR: inbound trojan tidak lengkap ($actual/$expected)"; exit 1; }
 # backup config
 cp /etc/xray/config.json /etc/xray/config.json.bak
 
 # temp file
-tmpfile=$(mktemp)
+tmpfile=$(mktemp --suffix=.json)
 
 # inject user ke config
 if ! jq --arg uuid "$uuid" --arg user "$user" '
@@ -74,7 +84,8 @@ if ! jq empty "$tmpfile" >/dev/null 2>&1; then
 fi
 
 # replace config
-mv "$tmpfile" /etc/xray/config.json
+cat "$tmpfile" > /etc/xray/config.json
+rm -f "$tmpfile"
 
 # test config xray
 if ! xray -test -config /etc/xray/config.json >/dev/null 2>&1; then

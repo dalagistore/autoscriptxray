@@ -1,60 +1,30 @@
 #!/bin/bash
-
-clear
-
-BLUE='\033[0;34m'
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-CYAN='\033[0;36m'
-NC='\033[0m'
-
-CONFIG="/etc/xray/config.json"
-
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "\E[44;1;39m            DELETE TROJAN ACCOUNT            \E[0m"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-
-echo -e "${CYAN}📋 List User Trojan:${NC}"
-echo ""
-
-users=$(jq -r '.inbounds[] | select(.tag=="trojan-tls") | .settings.clients[].email' $CONFIG)
-
-if [[ -z "$users" ]]; then
-echo -e "${RED}Tidak ada user Trojan!${NC}"
-read -n 1 -s -r -p "Tekan apa saja untuk kembali..."
-m-trojan
-exit
+set -euo pipefail
+source /etc/autoscriptvpn/xray/account-common.sh trojan
+require_files
+printf '\n=== DLGST TROJAN - DEL ===\n'
+awk '{print " - " $1 " (" $2 ")"}' "$DB"
+read -r -p 'Username yang dihapus: ' user
+[[ "$user" =~ ^[A-Za-z0-9_-]+$ ]] || { echo 'Username tidak valid'; exit 1; }
+row=$(get_db "$user")
+[[ -n "$row" ]] || { echo 'Akun tidak ditemukan dalam database'; exit 1; }
+read -r -p "Yakin hapus $user? [y/N]: " confirm
+[[ "$confirm" == [yY] ]] || exit 0
+backup=$(mktemp -d /tmp/dlgst-backup.XXXXXX)
+cp -p "$CONFIG" "$backup/config.json"
+cp -p "$DB" "$backup/account.db"
+tmp=$(mktemp --suffix=.json)
+trap 'rm -f "$tmp"' EXIT
+jq --arg u "$user" --argjson tags "$TAGS" '(.inbounds[] | select(.tag as $t | $tags | index($t) != null) | .settings.clients) |= map(select(.email != $u))' "$CONFIG" > "$tmp"
+if ! xray -test -config "$tmp" >/dev/null 2>&1; then echo 'Config baru tidak lolos tes, dibatalkan'; exit 1; fi
+cat "$tmp" > "$CONFIG"
+if ! systemctl restart xray || ! systemctl is-active --quiet xray; then
+  cp -p "$backup/config.json" "$CONFIG"
+  systemctl restart xray || true
+  echo 'Restart gagal, konfigurasi dipulihkan'; exit 1
 fi
-
-num=1
-for user in $users
-do
-printf "${GREEN}[%s]${NC} %s\n" "$num" "$user"
-((num++))
-done
-
-echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-
-read -rp "👉 Masukkan username yang ingin dihapus: " user
-
-jq --arg user "$user" '
-(.inbounds[] | select(.tag=="trojan-tls").settings.clients) |=
-map(select(.email != $user))
-' $CONFIG > /tmp/config.json
-
-mv /tmp/config.json $CONFIG
-
-# hapus comment expiry
-sed -i "/#trojan $user/d" $CONFIG
-
-systemctl restart xray
-
-echo ""
-echo -e "${GREEN}✅ User Trojan '${user}' berhasil dihapus!${NC}"
-echo ""
-
-read -n 1 -s -r -p "Tekan apa saja untuk kembali ke menu..."
-
-m-trojan
+tmpdb=$(mktemp)
+awk -v u="$user" '$1!=u' "$DB" > "$tmpdb"
+cat "$tmpdb" > "$DB"; rm -f "$tmpdb"
+echo "Akun $user dihapus. Backup: $backup"
+wait_back
