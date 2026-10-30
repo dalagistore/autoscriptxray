@@ -88,6 +88,9 @@ sleep 1
 # =========================================================
 
 require_file "$BASE_DIR/config/udp-custom.json"
+require_file "$BASE_DIR/ssh/m-ssh"
+require_file "$BASE_DIR/ssh/addssh.sh"
+require_file "$BASE_DIR/ssh/account-info.sh"
 require_dir "$BASE_DIR/internal/go"
 require_dir "$BASE_DIR/internal/go/dropbear-ws"
 require_dir "$BASE_DIR/internal/go/stunnel-ws"
@@ -331,6 +334,25 @@ install -m 644 \
     fail "Gagal memasang udp-custom.service."
 
 # =========================================================
+# INSTALL DLGST SSH ACCOUNT MANAGER
+# =========================================================
+
+echo
+info "Memasang DLGST SSH Account Manager..."
+
+mkdir -p /etc/autoscriptvpn/ssh
+
+install -m 700 "$BASE_DIR/ssh/m-ssh" /etc/autoscriptvpn/ssh/m-ssh ||
+    fail "Gagal memasang menu SSH."
+install -m 700 "$BASE_DIR/ssh/addssh.sh" /etc/autoscriptvpn/ssh/addssh.sh ||
+    fail "Gagal memasang addssh.sh."
+install -m 700 "$BASE_DIR/ssh/account-info.sh" /etc/autoscriptvpn/ssh/account-info.sh ||
+    fail "Gagal memasang account-info.sh."
+
+install -m 700 "$BASE_DIR/ssh/m-ssh" /usr/bin/m-ssh ||
+    fail "Gagal memasang shortcut menu SSH."
+
+# =========================================================
 # RELOAD SYSTEMD
 # =========================================================
 
@@ -491,4 +513,3 @@ dropbear -V 2>&1 || true
 echo
 echo -e "${GREEN}[ OK ] Instalasi selesai.${NC}"
 echo
-```
