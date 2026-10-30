@@ -11,6 +11,7 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m'
 ADD_SCRIPT='/etc/autoscriptvpn/ssh/addssh.sh'
+source /etc/autoscriptvpn/ssh/account-info.sh
 
 pause() { read -r -p 'Tekan Enter untuk kembali ke menu...' _; }
 info() { echo -e "${GREEN}[INFO]${NC} $*"; }
@@ -77,31 +78,24 @@ add_ssh_account() {
 
 trial_ssh_account() {
     clear
-    echo -e "${CYAN}=== BUAT AKUN TRIAL SSH (1 HARI) ===${NC}"
+    echo "=== DLGST - PREMIUM VPN | SSH TRIAL ==="
     read -r -p 'Username trial (kosong = otomatis): ' user
-    if [[ -z "$user" ]]; then user="trial$(date +%H%M%S)"; fi
-    if ! valid_username "$user"; then err 'Format username tidak valid.'; return; fi
-    if account_exists "$user"; then err 'Username sudah digunakan.'; return; fi
-
-    local pass expiry
+    [[ -n "$user" ]] || user="trial$(date +%H%M%S)"
+    valid_username "$user" || { err 'Format username tidak valid.'; return; }
+    account_exists "$user" && { err 'Username sudah digunakan.'; return; }
+    local pass expiry file
     pass=$(make_password)
-    expiry=$(date -d '+1 day' +%Y-%m-%d) || { err 'Gagal menghitung tanggal kedaluwarsa.'; return; }
-
-    # Use the same local Linux account database used by OpenSSH/Dropbear.
-    if ! useradd -M -s /bin/false -e "$expiry" "$user"; then
-        err 'Gagal membuat akun trial.'; return
-    fi
+    expiry=$(date -d '+1 day' +%Y-%m-%d) || { err 'Gagal menghitung kedaluwarsa.'; return; }
+    useradd -M -s /bin/false -e "$expiry" "$user" || { err 'Gagal membuat akun trial.'; return; }
     if ! printf '%s:%s\n' "$user" "$pass" | chpasswd; then
         userdel "$user" 2>/dev/null || true
         err 'Gagal mengatur password; akun dibatalkan.'; return
     fi
-    chage -E "$expiry" "$user" || warn 'Tanggal kedaluwarsa gagal diterapkan.'
-    echo
-    info 'Akun trial dibuat.'
-    echo "Username   : $user"
-    echo "Password   : $pass"
-    echo "Kedaluwarsa: $expiry"
-    echo 'Catatan: akun menggunakan database user Linux; pastikan metode autentikasi SSH panel Anda memakai akun sistem.'
+    chage -E "$expiry" "$user" || warn 'Gagal menerapkan tanggal kedaluwarsa.'
+    mkdir -p /root/accounts
+    file="/root/accounts/${user}.txt"
+    show_dlgst_ssh_info "$user" "$pass" "$expiry" "1 Hari" TRIAL "$file"
+    echo "Informasi akun tersimpan: $file"
 }
 
 renew_ssh_account() {
